@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Registro{% endblock %}
+
+{% block content %}
+<h1>Crear cuenta</h1>
+<form method="post">
+  <label>
+    Nombre de usuario
+    <input type="text" name="username" required minlength="3">
+  </label>
+
+  <label>
+    Gmail asociado
+    <input type="email" name="email" placeholder="usuario@gmail.com" pattern=".+@gmail\.com$" required>
+  </label>
+
+  <label>
+    Contraseña
+    <input type="password" name="password" required minlength="6">
+  </label>
+
+  <label>
+    Tipo de cuenta
+    <select name="role" id="role-select">
+      <option value="user" selected>Usuario</option>
+      <option value="admin">Administrador</option>
+    </select>
+  </label>
+
+  <div id="company-key-wrapper" style="display: none;">
+    <label>
+      Clave de empresa (solo personal autorizado)
+      <input type="password" name="company_key" id="company-key-input">
+    </label>
+  </div>
+
+  <button type="submit">Registrarse</button>
+</form>
+
+<script>
+  const roleSelect = document.getElementById("role-select");
+  const keyWrapper = document.getElementById("company-key-wrapper");
+  const keyInput = document.getElementById("company-key-input");
+
+  roleSelect.addEventListener("change", () => {
+    const isAdmin = roleSelect.value === "admin";
+    keyWrapper.style.display = isAdmin ? "block" : "none";
+    keyInput.required = isAdmin;
+  });
+</script>
+{% endblock %}
