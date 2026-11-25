@@ -20,6 +20,9 @@ class User(db.Model):
         default=lambda: datetime.now(UTC),
     )
 
+    questions = db.relationship("Question", back_populates="author", lazy=True)
+    answers = db.relationship("Answer", back_populates="author", lazy=True)
+
     def __init__(
         self,
         email: str,
