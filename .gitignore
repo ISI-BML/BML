@@ -10,3 +10,8 @@ __pycache__/
 .env
 *.db
 instance/
+
+__pycache__/
+*.py[cod]
+instance/
+*.db
