@@ -96,6 +96,23 @@ def update_bot_preference(question_id: int):
     ), 200
 
 
+@api_forum_bp.delete("/<int:question_id>")
+def delete_question(question_id: int):
+    if g.user is None:
+        return jsonify({"error": "Autenticación requerida."}), 401
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        return jsonify({"error": "Pregunta no encontrada."}), 404
+
+    if question.author_id != g.user.id and not g.user.is_admin:
+        return jsonify({"error": "No autorizado para eliminar esta pregunta."}), 403
+
+    db.session.delete(question)
+    db.session.commit()
+    return jsonify({"message": "Pregunta eliminada correctamente."}), 200
+
+
 @api_forum_bp.post("/<int:question_id>/answers")
 def create_answer(question_id: int):
     if g.user is None:
@@ -120,6 +137,27 @@ def create_answer(question_id: int):
     db.session.commit()
 
     return jsonify({"id": answer.id, "is_bot": False, "body": answer.body}), 201
+
+
+@api_forum_bp.delete("/<int:question_id>/answers/<int:answer_id>")
+def delete_answer(question_id: int, answer_id: int):
+    if g.user is None:
+        return jsonify({"error": "Autenticación requerida."}), 401
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        return jsonify({"error": "Pregunta no encontrada."}), 404
+
+    answer = db.session.get(Answer, answer_id)
+    if not answer or answer.question_id != question.id:
+        return jsonify({"error": "Respuesta no encontrada."}), 404
+
+    if answer.author_id != g.user.id and not g.user.is_admin:
+        return jsonify({"error": "No autorizado para eliminar esta respuesta."}), 403
+
+    db.session.delete(answer)
+    db.session.commit()
+    return jsonify({"message": "Respuesta eliminada correctamente."}), 200
 
 
 @api_forum_bp.post("/<int:question_id>/bot-answer")
