@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from myapp.extensions import db
 
@@ -30,6 +30,17 @@ class Question(db.Model):
     @property
     def has_answers(self) -> bool:
         return len(self.answers) > 0
+
+    @property
+    def can_request_bot(self) -> bool:
+        if self.has_answers:
+            return False
+        created = (
+            self.created_at
+            if self.created_at.tzinfo is not None
+            else self.created_at.replace(tzinfo=UTC)
+        )
+        return datetime.now(UTC) - created >= timedelta(hours=24)
 
 
 class Answer(db.Model):
