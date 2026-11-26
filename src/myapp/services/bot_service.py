@@ -1,5 +1,6 @@
 import json
 import logging
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 
@@ -13,10 +14,16 @@ logger = logging.getLogger(__name__)
 
 class BotService:
     @staticmethod
-    def build_prompt(question: Question) -> str:
-        if question.bot_response_mode == "detallada":
+    def normalize_mode(mode: str | None) -> str:
+        if mode in ("detallada", "desarrollada"):
+            return "desarrollada"
+        return "breve"
+
+    @classmethod
+    def build_prompt(cls, question: Question) -> str:
+        if cls.normalize_mode(question.bot_response_mode) == "desarrollada":
             style_instruction = (
-                "Proporciona una respuesta DETALLADA, estructurada paso a paso, "
+                "Proporciona una respuesta DESARROLLADA y detallada, estructurada paso a paso, "
                 "explicando el porqué de la solución y dando un ejemplo claro."
             )
         else:
@@ -54,15 +61,23 @@ class BotService:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except Exception as exc:
+        except (
+            urllib.error.URLError,
+            json.JSONDecodeError,
+            KeyError,
+            IndexError,
+            TypeError,
+            TimeoutError,
+            OSError,
+        ) as exc:
             logger.error("Error invocando IA para question_id=%s: %s", question.id, exc)
             return cls._fallback_response(question)
 
-    @staticmethod
-    def _fallback_response(question: Question) -> str:
-        if question.bot_response_mode == "detallada":
+    @classmethod
+    def _fallback_response(cls, question: Question) -> str:
+        if cls.normalize_mode(question.bot_response_mode) == "desarrollada":
             return (
-                f"Respuesta detallada automática sobre «{question.title}»:\n"
+                f"Respuesta desarrollada automática sobre «{question.title}»:\n"
                 f"1. Contexto: Analizando tu consulta («{question.body[:120]}...»), el problema requiere revisar los parámetros involucrados.\n"
                 f"2. Pasos recomendados: Verifica la estructura de entrada, valida los estados intermedios y comprueba la ejecución.\n"
                 f"3. Conclusión: Siguiendo esta secuencia resolverás el caso planteado."
@@ -73,9 +88,35 @@ class BotService:
         )
 
     @classmethod
+    def answer_question_on_demand(
+        cls, question: Question, mode: str | None = None
+    ) -> Answer:
+        if not question.can_request_bot:
+            raise ValueError(
+                "La consulta al bot solo está disponible tras 24 horas sin respuestas."
+            )
+
+        if mode is not None:
+            question.bot_response_mode = cls.normalize_mode(mode)
+
+        reply_text = cls.generate_answer_text(question)
+        bot_answer = Answer(
+            body=reply_text,
+            question_id=question.id,
+            author_id=None,
+            is_bot=True,
+            bot_style=cls.normalize_mode(question.bot_response_mode),
+        )
+        db.session.add(bot_answer)
+        db.session.commit()
+        return bot_answer
+
+    @classmethod
     def process_unanswered_questions(cls, delay_minutes: int | None = None) -> int:
         if delay_minutes is None:
-            delay_minutes = current_app.config.get("BOT_RESPONSE_DELAY_MINUTES", 30)
+            delay_minutes = current_app.config.get(
+                "BOT_RESPONSE_DELAY_MINUTES", 24 * 60
+            )
 
         cutoff_time = datetime.now(UTC) - timedelta(minutes=delay_minutes)
 
@@ -93,15 +134,10 @@ class BotService:
                 question_id=question.id,
                 author_id=None,
                 is_bot=True,
-                bot_style=question.bot_response_mode,
+                bot_style=cls.normalize_mode(question.bot_response_mode),
             )
             db.session.add(bot_answer)
             answered_count += 1
-            logger.info(
-                "Bot respondió pregunta id=%s en modo=%s",
-                question.id,
-                question.bot_response_mode,
-            )
 
         if answered_count > 0:
             db.session.commit()

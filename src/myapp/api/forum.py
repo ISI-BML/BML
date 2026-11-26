@@ -2,6 +2,7 @@ from flask import Blueprint, g, jsonify, request
 
 from myapp.extensions import db
 from myapp.models.forum import Answer, Question
+from myapp.services.bot_service import BotService
 
 api_forum_bp = Blueprint("api_forum", __name__, url_prefix="/api/questions")
 
@@ -19,9 +20,9 @@ def create_question():
     if not title or not body:
         return jsonify({"error": "Título y contenido son obligatorios."}), 400
 
-    if bot_mode not in ("breve", "detallada"):
+    if bot_mode not in ("breve", "detallada", "desarrollada"):
         return jsonify(
-            {"error": "El modo del bot debe ser 'breve' o 'detallada'."}
+            {"error": "El modo del bot debe ser 'breve' o 'desarrollada'."}
         ), 400
 
     question = Question(
@@ -42,6 +43,32 @@ def create_question():
     ), 201
 
 
+@api_forum_bp.get("/<int:question_id>")
+def get_question(question_id: int):
+    question = db.session.get(Question, question_id)
+    if not question:
+        return jsonify({"error": "Pregunta no encontrada."}), 404
+
+    return jsonify(
+        {
+            "id": question.id,
+            "title": question.title,
+            "body": question.body,
+            "bot_response_mode": question.bot_response_mode,
+            "can_request_bot": question.can_request_bot,
+            "answers": [
+                {
+                    "id": ans.id,
+                    "body": ans.body,
+                    "is_bot": ans.is_bot,
+                    "bot_style": ans.bot_style,
+                }
+                for ans in question.answers
+            ],
+        }
+    ), 200
+
+
 @api_forum_bp.patch("/<int:question_id>")
 def update_bot_preference(question_id: int):
     if g.user is None:
@@ -56,7 +83,7 @@ def update_bot_preference(question_id: int):
 
     data = request.get_json(silent=True) or {}
     if "bot_response_mode" in data:
-        if data["bot_response_mode"] not in ("breve", "detallada"):
+        if data["bot_response_mode"] not in ("breve", "detallada", "desarrollada"):
             return jsonify({"error": "Modo inválido."}), 400
         question.bot_response_mode = data["bot_response_mode"]
 
@@ -93,3 +120,37 @@ def create_answer(question_id: int):
     db.session.commit()
 
     return jsonify({"id": answer.id, "is_bot": False, "body": answer.body}), 201
+
+
+@api_forum_bp.post("/<int:question_id>/bot-answer")
+def request_bot_answer(question_id: int):
+    if g.user is None:
+        return jsonify({"error": "Autenticación requerida."}), 401
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        return jsonify({"error": "Pregunta no encontrada."}), 404
+
+    if question.author_id != g.user.id and not g.user.is_admin:
+        return jsonify(
+            {"error": "Solo el autor de la pregunta puede consultar al bot."}
+        ), 403
+
+    data = request.get_json(silent=True) or {}
+    mode = data.get("bot_response_mode")
+    if mode is not None and mode not in ("breve", "detallada", "desarrollada"):
+        return jsonify({"error": "El modo debe ser 'breve' o 'desarrollada'."}), 400
+
+    try:
+        bot_answer = BotService.answer_question_on_demand(question, mode=mode)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(
+        {
+            "id": bot_answer.id,
+            "is_bot": True,
+            "bot_style": bot_answer.bot_style,
+            "body": bot_answer.body,
+        }
+    ), 201
